@@ -42,28 +42,25 @@ namespace PEAKCosmeticsLib
         private class Patcher
         {
             /// <summary>
-            /// A reusable helper that removes our cosmetics from a list of options before re-adding them.
-            /// This ensures our cosmetics are always added last, in a consistent order and doesn't scramble the indexing of cosmetics.
-            /// This should allow cooperative mod compatibility with other cosmetic mods.
+            /// Reusable helper to cooperatively rebuild the UI option lists, ensuring synchronization.
             /// </summary>
             private static void SynchronizeCosmeticOptions(Customization customization)
             {
-                // Get the names of all hats managed by our API
+                // Hats
                 var apiHatNames = new HashSet<string>(CosmeticAPI.Hats.Select(h => h.Name));
-                // Create a new list containing only hats that are NOT from our API
                 var syncedHatOptions = (customization.hats ?? Array.Empty<CustomizationOption>())
                                        .Where(h => h != null && !apiHatNames.Contains(h.name)).ToList();
-                // Re-add our hats to the end of the list
                 foreach (var hat in CosmeticAPI.Hats) CreateCosmeticOption(syncedHatOptions, hat.Name, hat.Icon, Customization.Type.Hat, hat.Prefab, hat.RequiredAchievement);
                 customization.hats = syncedHatOptions.ToArray();
 
-                // Repeat for other types...
+                // Outfits
                 var apiOutfitNames = new HashSet<string>(CosmeticAPI.Outfits.Select(o => o.Name));
                 var syncedOutfitOptions = (customization.fits ?? Array.Empty<CustomizationOption>())
                                           .Where(o => o != null && !apiOutfitNames.Contains(o.name)).ToList();
                 foreach (var outfit in CosmeticAPI.Outfits) CreateCosmeticOption(syncedOutfitOptions, outfit.Name, outfit.Icon, Customization.Type.Fit, outfit.Prefab, outfit.RequiredAchievement);
                 customization.fits = syncedOutfitOptions.ToArray();
 
+                // Other 2D Cosmetics
                 var apiMouthNames = new HashSet<string>(CosmeticAPI.Mouths.Select(m => m.Name));
                 var syncedMouthOptions = (customization.mouths ?? Array.Empty<CustomizationOption>())
                                          .Where(m => m != null && !apiMouthNames.Contains(m.name)).ToList();
@@ -84,7 +81,7 @@ namespace PEAKCosmeticsLib
             }
 
             /// <summary>
-            /// A helper for cooperative cosmetic patching.
+            /// Reusable helper to cooperatively rebuild the 3D hat model list.
             /// </summary>
             private static void SynchronizeHatModels(CharacterCustomization __instance)
             {
@@ -94,35 +91,43 @@ namespace PEAKCosmeticsLib
                 if (hatsContainer == null) { hatsContainer = __instance.transform.Find("Scout/Armature/Hip/Mid/AimJoint/Torso/Head/Hat"); }
                 if (hatsContainer == null) { Logger.LogError("Could not find the hats container transform!"); return; }
 
-                // Get a list of all hat names managed by our API
                 var apiHatObjectNames = new HashSet<string>(CosmeticAPI.Hats.Select(h => $"CustomHat_{h.Name}"));
-                // Create a new list containing only hats that are NOT from our API
                 var syncedHats = new List<Renderer>(__instance.refs.playerHats.Where(h => h != null && !apiHatObjectNames.Contains(h.name)));
 
-                // Re-add our hats to the end of the list
                 foreach (var hat in CosmeticAPI.Hats)
                 {
                     if (hat.Prefab == null) continue;
                     GameObject hatInstance = Instantiate(hat.Prefab, hatsContainer);
                     hatInstance.name = $"CustomHat_{hat.Name}";
 
-                    if (hat.Transform is { } transform)
-                    {
-                        hatInstance.transform.localPosition = transform.Position;
-                        hatInstance.transform.localScale = transform.Scale;
-                        hatInstance.transform.localRotation = Quaternion.Euler(transform.Rotation);
-                    }
-
+                    // Deactivate the renderer's specific GameObject, not the parent instance.
                     if (hatInstance.GetComponentInChildren<Renderer>() is { } renderer)
                     {
+                        renderer.gameObject.SetActive(false);
+
+                        if (hat.Transform is { } transform)
+                        {
+                            hatInstance.transform.localPosition = transform.Position;
+                            hatInstance.transform.localScale = transform.Scale;
+                            hatInstance.transform.localRotation = Quaternion.Euler(transform.Rotation);
+                        }
+
                         renderer.material.shader = Shader.Find("W/Character");
                         syncedHats.Add(renderer);
+                    }
+                    else
+                    {
+                        Logger.LogError($"Prefab for hat '{hat.Name}' is missing a Renderer component.");
+                        Destroy(hatInstance);
                     }
                 }
 
                 __instance.refs.playerHats = syncedHats.ToArray();
             }
 
+            /// <summary>
+            /// This patch runs every time a tab is opened, ensuring the UI list is always in sync.
+            /// </summary>
             [HarmonyPatch(typeof(PassportManager), "OpenTab")]
             [HarmonyPostfix]
             public static void PassportManagerOpenTabPostfix(PassportManager __instance)
@@ -141,6 +146,9 @@ namespace PEAKCosmeticsLib
                 }
             }
 
+            /// <summary>
+            /// This patch runs when the character object starts, ensuring the 3D model list is always in sync.
+            /// </summary>
             [HarmonyPatch(typeof(CharacterCustomization), "Start")]
             [HarmonyPostfix]
             public static void CharacterCustomizationStartPostfix(CharacterCustomization __instance)
@@ -171,6 +179,9 @@ namespace PEAKCosmeticsLib
                 }
             }
 
+            /// <summary>
+            /// A helper method to create and add a single cosmetic UI option to a list.
+            /// </summary>
             private static void CreateCosmeticOption(List<CustomizationOption> optionsList, string name, Texture2D? icon, Customization.Type type, GameObject? prefab, ACHIEVEMENTTYPE requiredAchievement)
             {
                 if (icon == null) { Logger.LogWarning($"Skipping UI option for '{name}' (type {type}) due to null icon."); return; }
@@ -195,6 +206,15 @@ namespace PEAKCosmeticsLib
 
                 optionsList.Add(cosmeticOption);
             }
+
+            // Awake patches are no longer needed for primary injection, as the Start/OpenTab patches are more robust.
+            [HarmonyPatch(typeof(PassportManager), "Awake")]
+            [HarmonyPostfix]
+            public static void PassportManagerAwakePostfix() { }
+
+            [HarmonyPatch(typeof(CharacterCustomization), "Awake")]
+            [HarmonyPostfix]
+            public static void CharacterCustomizationAwakePostfix() { }
         }
     }
 
