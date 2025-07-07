@@ -2,6 +2,7 @@
 using BepInEx.Logging;
 using HarmonyLib;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -50,20 +51,62 @@ namespace PEAKCosmeticsLib
                     if (customization == null) { Logger.LogError("Customization component not found on PassportManager!"); return; }
 
                     Logger.LogInfo("Adding all custom cosmetics to passport...");
-                    // Correctly handle 3D cosmetics (with prefabs)
                     foreach (var hat in CosmeticAPI.Hats) CreateCosmeticOption(customization, hat.Name, hat.Icon, Customization.Type.Hat, hat.Prefab, hat.RequiredAchievement);
                     foreach (var outfit in CosmeticAPI.Outfits) CreateCosmeticOption(customization, outfit.Name, outfit.Icon, Customization.Type.Fit, outfit.Prefab, outfit.RequiredAchievement);
-
-                    // Correctly handle 2D cosmetics (passing null for the prefab)
                     foreach (var mouth in CosmeticAPI.Mouths) CreateCosmeticOption(customization, mouth.Name, mouth.Icon, Customization.Type.Mouth, null, mouth.RequiredAchievement);
                     foreach (var eye in CosmeticAPI.Eyes) CreateCosmeticOption(customization, eye.Name, eye.Icon, Customization.Type.Eyes, null, eye.RequiredAchievement);
                     foreach (var accessory in CosmeticAPI.Accessories) CreateCosmeticOption(customization, accessory.Name, accessory.Icon, Customization.Type.Accessory, null, accessory.RequiredAchievement);
-
                     Logger.LogInfo("Finished adding cosmetics to passport.");
                 }
                 catch (Exception e)
                 {
                     Logger.LogError($"An error occurred in the PassportManager.Awake patch: {e}");
+                }
+            }
+
+            /// <summary>
+            /// A  cooperative method to add hats to a CharacterCustomization instance.
+            /// </summary>
+            private static void AddHatsCooperative(CharacterCustomization __instance)
+            {
+                if (__instance.refs.playerHats == null) return;
+
+                Transform? hatsContainer = __instance.refs.playerHats.FirstOrDefault()?.transform.parent;
+                if (hatsContainer == null) { Logger.LogError("Could not find the hats container transform!"); return; }
+
+                var allHats = new List<Renderer>(__instance.refs.playerHats);
+                int initialCount = allHats.Count;
+
+                foreach (var hat in CosmeticAPI.Hats)
+                {
+                    if (allHats.Any(h => h.name == $"CustomHat_{hat.Name}")) continue;
+
+                    if (hat.Prefab == null) continue;
+                    GameObject hatInstance = Instantiate(hat.Prefab, hatsContainer);
+                    hatInstance.name = $"CustomHat_{hat.Name}";
+
+                    if (hat.Transform is { } transform)
+                    {
+                        hatInstance.transform.localPosition = transform.Position;
+                        hatInstance.transform.localScale = transform.Scale;
+                        hatInstance.transform.localRotation = Quaternion.Euler(transform.Rotation);
+                    }
+
+                    if (hatInstance.GetComponentInChildren<Renderer>() is { } renderer)
+                    {
+                        renderer.material.shader = Shader.Find("W/Character");
+                        allHats.Add(renderer);
+                    }
+                    else
+                    {
+                        Logger.LogError($"Prefab for hat '{hat.Name}' is missing a Renderer component.");
+                    }
+                }
+
+                if (allHats.Count > initialCount)
+                {
+                    __instance.refs.playerHats = allHats.ToArray();
+                    Logger.LogInfo($"Added {allHats.Count - initialCount} new hats. Total hats now: {__instance.refs.playerHats.Length}");
                 }
             }
 
@@ -73,34 +116,8 @@ namespace PEAKCosmeticsLib
             {
                 try
                 {
-                    if (__instance.refs.playerHats == null || __instance.refs.playerHats.Length == 0) { Logger.LogError("playerHats array is missing or empty! Cannot instantiate custom hats."); return; }
-                    Transform? hatsContainer = __instance.refs.playerHats[0].transform.parent;
-                    if (hatsContainer == null) { Logger.LogError("Could not find the hats container transform!"); return; }
-
-                    Logger.LogInfo($"Instantiating custom hats in {hatsContainer.name}.");
-                    foreach (var hat in CosmeticAPI.Hats)
-                    {
-                        if (hat.Prefab == null) continue;
-                        GameObject hatInstance = Instantiate(hat.Prefab, hatsContainer);
-                        hatInstance.name = $"CustomHat_{hat.Name}";
-
-                        if (hat.Transform is { } transform)
-                        {
-                            hatInstance.transform.localPosition = transform.Position;
-                            hatInstance.transform.localScale = transform.Scale;
-                            hatInstance.transform.localRotation = Quaternion.Euler(transform.Rotation);
-                        }
-
-                        if (hatInstance.GetComponentInChildren<Renderer>() is { } renderer)
-                        {
-                            renderer.material.shader = Shader.Find("W/Character");
-                            __instance.refs.playerHats = __instance.refs.playerHats.AddToArray(renderer);
-                        }
-                        else
-                        {
-                            Logger.LogError($"Prefab for hat '{hat.Name}' is missing a Renderer component.");
-                        }
-                    }
+                    Logger.LogInfo("Running cooperative hat injection in Awake...");
+                    AddHatsCooperative(__instance);
                 }
                 catch (Exception e)
                 {
@@ -114,6 +131,12 @@ namespace PEAKCosmeticsLib
             {
                 try
                 {
+                    // --- Possible mod time race compatibility fix ---
+                    // By running the cooperative add again in Start(), we ensure our hats are present
+                    // even if another mod's Awake() patch overwrote them.
+                    Logger.LogInfo("Running cooperative cosmetics verification in Start...");
+                    AddHatsCooperative(__instance);
+
                     FieldInfo? characterField = typeof(CharacterCustomization).GetField("_character", BindingFlags.NonPublic | BindingFlags.Instance);
                     Character? characterObject = characterField?.GetValue(__instance) as Character;
                     if (characterObject == null || !characterObject.IsLocal) return;
