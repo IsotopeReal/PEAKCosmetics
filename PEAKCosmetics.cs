@@ -50,13 +50,35 @@ namespace PEAKCosmeticsLib
                     Customization customization = __instance.GetComponent<Customization>();
                     if (customization == null) { Logger.LogError("Customization component not found on PassportManager!"); return; }
 
-                    Logger.LogInfo("Adding all custom cosmetics to passport...");
-                    foreach (var hat in CosmeticAPI.Hats) CreateCosmeticOption(customization, hat.Name, hat.Icon, Customization.Type.Hat, hat.Prefab, hat.RequiredAchievement);
-                    foreach (var outfit in CosmeticAPI.Outfits) CreateCosmeticOption(customization, outfit.Name, outfit.Icon, Customization.Type.Fit, outfit.Prefab, outfit.RequiredAchievement);
-                    foreach (var mouth in CosmeticAPI.Mouths) CreateCosmeticOption(customization, mouth.Name, mouth.Icon, Customization.Type.Mouth, null, mouth.RequiredAchievement);
-                    foreach (var eye in CosmeticAPI.Eyes) CreateCosmeticOption(customization, eye.Name, eye.Icon, Customization.Type.Eyes, null, eye.RequiredAchievement);
-                    foreach (var accessory in CosmeticAPI.Accessories) CreateCosmeticOption(customization, accessory.Name, accessory.Icon, Customization.Type.Accessory, null, accessory.RequiredAchievement);
-                    Logger.LogInfo("Finished adding cosmetics to passport.");
+                    Logger.LogInfo("Adding all custom cosmetics to passport UI...");
+
+
+                    // Hats
+                    var hatOptions = new List<CustomizationOption>(customization.hats ?? Array.Empty<CustomizationOption>());
+                    foreach (var hat in CosmeticAPI.Hats) CreateCosmeticOption(hatOptions, hat.Name, hat.Icon, Customization.Type.Hat, hat.Prefab, hat.RequiredAchievement);
+                    customization.hats = hatOptions.ToArray();
+
+                    // Outfits
+                    var outfitOptions = new List<CustomizationOption>(customization.fits ?? Array.Empty<CustomizationOption>());
+                    foreach (var outfit in CosmeticAPI.Outfits) CreateCosmeticOption(outfitOptions, outfit.Name, outfit.Icon, Customization.Type.Fit, outfit.Prefab, outfit.RequiredAchievement);
+                    customization.fits = outfitOptions.ToArray();
+
+                    // Mouths
+                    var mouthOptions = new List<CustomizationOption>(customization.mouths ?? Array.Empty<CustomizationOption>());
+                    foreach (var mouth in CosmeticAPI.Mouths) CreateCosmeticOption(mouthOptions, mouth.Name, mouth.Icon, Customization.Type.Mouth, null, mouth.RequiredAchievement);
+                    customization.mouths = mouthOptions.ToArray();
+
+                    // Eyes
+                    var eyeOptions = new List<CustomizationOption>(customization.eyes ?? Array.Empty<CustomizationOption>());
+                    foreach (var eye in CosmeticAPI.Eyes) CreateCosmeticOption(eyeOptions, eye.Name, eye.Icon, Customization.Type.Eyes, null, eye.RequiredAchievement);
+                    customization.eyes = eyeOptions.ToArray();
+
+                    // Accessories
+                    var accessoryOptions = new List<CustomizationOption>(customization.accessories ?? Array.Empty<CustomizationOption>());
+                    foreach (var accessory in CosmeticAPI.Accessories) CreateCosmeticOption(accessoryOptions, accessory.Name, accessory.Icon, Customization.Type.Accessory, null, accessory.RequiredAchievement);
+                    customization.accessories = accessoryOptions.ToArray();
+
+                    Logger.LogInfo("Finished adding cosmetics to passport UI.");
                 }
                 catch (Exception e)
                 {
@@ -65,21 +87,30 @@ namespace PEAKCosmeticsLib
             }
 
             /// <summary>
-            /// A  cooperative method to add hats to a CharacterCustomization instance.
+            /// A reusable, cooperative method to add hats to a CharacterCustomization instance.
             /// </summary>
             private static void AddHatsCooperative(CharacterCustomization __instance)
             {
                 if (__instance.refs.playerHats == null) return;
 
                 Transform? hatsContainer = __instance.refs.playerHats.FirstOrDefault()?.transform.parent;
-                if (hatsContainer == null) { Logger.LogError("Could not find the hats container transform!"); return; }
+                if (hatsContainer == null)
+                {
+                    hatsContainer = __instance.transform.Find("Scout/Armature/Hip/Mid/AimJoint/Torso/Head/Hat");
+                    if (hatsContainer == null)
+                    {
+                        Logger.LogError("Could not find the hats container transform!");
+                        return;
+                    }
+                }
 
                 var allHats = new List<Renderer>(__instance.refs.playerHats);
                 int initialCount = allHats.Count;
 
                 foreach (var hat in CosmeticAPI.Hats)
                 {
-                    if (allHats.Any(h => h.name == $"CustomHat_{hat.Name}")) continue;
+                    // Check if a hat with this name was already added to prevent duplicates.
+                    if (allHats.Any(h => h != null && h.name == $"CustomHat_{hat.Name}")) continue;
 
                     if (hat.Prefab == null) continue;
                     GameObject hatInstance = Instantiate(hat.Prefab, hatsContainer);
@@ -103,6 +134,7 @@ namespace PEAKCosmeticsLib
                     }
                 }
 
+                // Only re-assign the array if we actually added something.
                 if (allHats.Count > initialCount)
                 {
                     __instance.refs.playerHats = allHats.ToArray();
@@ -131,10 +163,9 @@ namespace PEAKCosmeticsLib
             {
                 try
                 {
-                    // --- Possible mod time race compatibility fix ---
                     // By running the cooperative add again in Start(), we ensure our hats are present
                     // even if another mod's Awake() patch overwrote them.
-                    Logger.LogInfo("Running cooperative cosmetics verification in Start...");
+                    Logger.LogInfo("Running cooperative hat repair/verification in Start...");
                     AddHatsCooperative(__instance);
 
                     FieldInfo? characterField = typeof(CharacterCustomization).GetField("_character", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -156,10 +187,13 @@ namespace PEAKCosmeticsLib
                 }
             }
 
-            private static void CreateCosmeticOption(Customization customization, string name, Texture2D? icon, Customization.Type type, GameObject? prefab, ACHIEVEMENTTYPE requiredAchievement)
+            /// <summary>
+            /// A refactored helper to add a cosmetic option to a temporary list.
+            /// </summary>
+            private static void CreateCosmeticOption(List<CustomizationOption> optionsList, string name, Texture2D? icon, Customization.Type type, GameObject? prefab, ACHIEVEMENTTYPE requiredAchievement)
             {
                 if (icon == null) { Logger.LogWarning($"Skipping UI option for '{name}' (type {type}) due to null icon."); return; }
-                if (customization.GetList(type).Any(option => option != null && option.name == name)) { return; }
+                if (optionsList.Any(option => option != null && option.name == name)) { return; }
 
                 CustomizationOption cosmeticOption = ScriptableObject.CreateInstance<CustomizationOption>();
                 cosmeticOption.name = name;
@@ -178,17 +212,7 @@ namespace PEAKCosmeticsLib
                     }
                 }
 
-                var list = customization.GetList(type).ToList();
-                list.Add(cosmeticOption);
-
-                switch (type)
-                {
-                    case Customization.Type.Hat: customization.hats = list.ToArray(); break;
-                    case Customization.Type.Fit: customization.fits = list.ToArray(); break;
-                    case Customization.Type.Mouth: customization.mouths = list.ToArray(); break;
-                    case Customization.Type.Eyes: customization.eyes = list.ToArray(); break;
-                    case Customization.Type.Accessory: customization.accessories = list.ToArray(); break;
-                }
+                optionsList.Add(cosmeticOption);
             }
         }
     }
