@@ -10,11 +10,6 @@ using UnityEngine;
 
 namespace PEAKCosmeticsLib
 {
-    /// <summary>
-    /// Handles all logic for loading cosmetics from .cfg files.
-    /// This allows users to create cosmetic packs without creating a dll mod.
-    /// It uses the public CosmeticAPI to add loaded items to the library.
-    /// </summary>
     public class ConfigManager
     {
         private readonly Dictionary<string, (string assetBundleName, List<string> hatNames, List<string> outfitNames,
@@ -175,63 +170,47 @@ namespace PEAKCosmeticsLib
         #region Asset Loading
         private IEnumerator LoadAllCosmeticsFromDisk()
         {
-            PEAKCosmetics.Logger.LogInfo("Starting to load asset bundles from disk.");
+            PEAKCosmetics.Logger.LogInfo("Starting to load asset bundles from config files.");
             string assetBundlesFolderPath = Path.Combine(Paths.PluginPath, "AssetBundles");
             if (!Directory.Exists(assetBundlesFolderPath)) Directory.CreateDirectory(assetBundlesFolderPath);
 
             foreach (var entry in assetBundlesWithCosmetics.Values)
             {
-                if (string.IsNullOrEmpty(entry.assetBundleName)) continue;
+                if (string.IsNullOrEmpty(entry.assetBundleName))
+                {
+                    continue;
+                }
+
+                AssetBundle? loadedBundle = null;
                 string assetBundlePath = Path.Combine(assetBundlesFolderPath, entry.assetBundleName);
-                if (!File.Exists(assetBundlePath)) { PEAKCosmetics.Logger.LogError($"AssetBundle not found: {assetBundlePath}"); continue; }
 
-                AssetBundleCreateRequest createRequest = AssetBundle.LoadFromFileAsync(assetBundlePath);
-                yield return createRequest;
-                AssetBundle? loadedBundle = createRequest.assetBundle;
+                // We call the async method and wait for it to complete.
+                // This coroutine yields control until the nested coroutine is finished.
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.LoadCosmeticAssetBundleAsync(
+                    assetBundlePath,
+                    (bundle) => loadedBundle = bundle // This callback sets the loadedBundle variable
+                ));
 
-                if (loadedBundle == null) { PEAKCosmetics.Logger.LogError($"Failed to load AssetBundle: {entry.assetBundleName}"); continue; }
+                if (loadedBundle == null)
+                {
+                    PEAKCosmetics.Logger.LogError($"Failed to load AssetBundle: {entry.assetBundleName}, skipping this config entry.");
+                    continue;
+                }
 
                 PEAKCosmetics.Logger.LogInfo($"AssetBundle loaded: {entry.assetBundleName}");
 
-                // Load hats and pass transform data to the API
-                foreach (var name in entry.hatNames.Select(n => n.Trim()))
-                {
-                    entry.achievementRequirements.TryGetValue(name, out var achievement);
-                    entry.transformations.TryGetValue(name, out var transform);
-                    CosmeticAPI.AddHat(name, loadedBundle.LoadAsset<GameObject>($"Assets/{name}.prefab"), LoadIconSafely(loadedBundle, name), entry.assetBundleName, achievement, transform);
-                }
+                // Now that the bundle is loaded, we can start the async operations to load assets from it.
+                // Each of these will be waited on in sequence.
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.AddHatsFromBundleAsync(loadedBundle, entry.hatNames, entry.transformations));
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.AddOutfitsFromBundleAsync(loadedBundle, entry.outfitNames));
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.AddEyesFromBundleAsync(loadedBundle, entry.eyeNames));
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.AddMouthsFromBundleAsync(loadedBundle, entry.mouthNames));
+                yield return PEAKCosmetics.Instance.StartCoroutine(CosmeticAPI.AddAccessoriesFromBundleAsync(loadedBundle, entry.accessoryNames));
 
-                // Load other cosmetics
-                LoadCosmeticsFromBundle(loadedBundle, entry.outfitNames, entry.achievementRequirements, (name, prefab, icon, bundleName, achievement) => CosmeticAPI.AddOutfit(name, prefab, icon, bundleName, achievement));
-                LoadCosmeticsFromBundle(loadedBundle, entry.mouthNames, entry.achievementRequirements, (name, prefab, icon, bundleName, achievement) => CosmeticAPI.AddMouth(name, icon, bundleName, prefab, achievement));
-                LoadCosmeticsFromBundle(loadedBundle, entry.eyeNames, entry.achievementRequirements, (name, prefab, icon, bundleName, achievement) => CosmeticAPI.AddEye(name, icon, bundleName, prefab, achievement));
-                LoadCosmeticsFromBundle(loadedBundle, entry.accessoryNames, entry.achievementRequirements, (name, prefab, icon, bundleName, achievement) => CosmeticAPI.AddAccessory(name, icon, bundleName, prefab, achievement));
-                LoadCosmeticsFromBundle(loadedBundle, entry.sashNames, entry.achievementRequirements, (name, prefab, icon, bundleName, achievement) => CosmeticAPI.AddSash(name, prefab, icon, bundleName, achievement));
-
+                // Unload the bundle memory once we are done with it.
                 loadedBundle.Unload(false);
             }
-            PEAKCosmetics.Logger.LogInfo("Finished loading all cosmetics from asset bundles.");
-        }
-
-        // Simplified helper for cosmetics without special data
-        private void LoadCosmeticsFromBundle(AssetBundle bundle, List<string> names, Dictionary<string, ACHIEVEMENTTYPE> achievements, Action<string, GameObject?, Texture2D?, string?, ACHIEVEMENTTYPE> addAction)
-        {
-            foreach (var name in names.Select(n => n.Trim()))
-            {
-                achievements.TryGetValue(name, out var achievement);
-                addAction(name, bundle.LoadAsset<GameObject>($"Assets/{name}.prefab"), LoadIconSafely(bundle, name), bundle.name, achievement);
-            }
-        }
-
-        // Try to stop cosmetics from breaking if it can't find the icon
-        private Texture2D? LoadIconSafely(AssetBundle bundle, string cosmeticName)
-        {
-            Texture2D? foundIcon = bundle.LoadAsset<Texture2D>($"Assets/{cosmeticName}.png");
-            if (foundIcon != null) return foundIcon;
-            Material? mat = bundle.LoadAsset<Material>($"Assets/{cosmeticName}.mat");
-            if (mat != null && mat.mainTexture != null) { return mat.mainTexture as Texture2D; }
-            PEAKCosmetics.Logger.LogWarning($"Icon for '{cosmeticName}' not found.");
-            return null;
+            PEAKCosmetics.Logger.LogInfo("Finished processing all cosmetic configs.");
         }
         #endregion
     }

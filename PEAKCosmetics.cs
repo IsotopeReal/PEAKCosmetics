@@ -50,11 +50,15 @@ namespace PEAKCosmeticsLib
                     if (customization == null) { Logger.LogError("Customization component not found on PassportManager!"); return; }
 
                     Logger.LogInfo("Adding all custom cosmetics to passport...");
+                    // Correctly handle 3D cosmetics (with prefabs)
                     foreach (var hat in CosmeticAPI.Hats) CreateCosmeticOption(customization, hat.Name, hat.Icon, Customization.Type.Hat, hat.Prefab, hat.RequiredAchievement);
                     foreach (var outfit in CosmeticAPI.Outfits) CreateCosmeticOption(customization, outfit.Name, outfit.Icon, Customization.Type.Fit, outfit.Prefab, outfit.RequiredAchievement);
-                    foreach (var mouth in CosmeticAPI.Mouths) CreateCosmeticOption(customization, mouth.Name, mouth.Icon, Customization.Type.Mouth, mouth.Prefab, mouth.RequiredAchievement);
-                    foreach (var eye in CosmeticAPI.Eyes) CreateCosmeticOption(customization, eye.Name, eye.Icon, Customization.Type.Eyes, eye.Prefab, eye.RequiredAchievement);
-                    foreach (var accessory in CosmeticAPI.Accessories) CreateCosmeticOption(customization, accessory.Name, accessory.Icon, Customization.Type.Accessory, accessory.Prefab, accessory.RequiredAchievement);
+
+                    // Correctly handle 2D cosmetics (passing null for the prefab)
+                    foreach (var mouth in CosmeticAPI.Mouths) CreateCosmeticOption(customization, mouth.Name, mouth.Icon, Customization.Type.Mouth, null, mouth.RequiredAchievement);
+                    foreach (var eye in CosmeticAPI.Eyes) CreateCosmeticOption(customization, eye.Name, eye.Icon, Customization.Type.Eyes, null, eye.RequiredAchievement);
+                    foreach (var accessory in CosmeticAPI.Accessories) CreateCosmeticOption(customization, accessory.Name, accessory.Icon, Customization.Type.Accessory, null, accessory.RequiredAchievement);
+
                     Logger.LogInfo("Finished adding cosmetics to passport.");
                 }
                 catch (Exception e)

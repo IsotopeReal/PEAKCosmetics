@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -15,9 +16,7 @@ namespace PEAKCosmeticsLib
         private static readonly List<MouthEntry> _mouths = new List<MouthEntry>();
         private static readonly List<AccessoryEntry> _accessories = new List<AccessoryEntry>();
 
-        // Public Read-Only properties for access by other mods
-        // to allow possible custom passport/wardrobe/whatever UIs with sorting and whatnot.
-        // Could also use this for an outfit saver/randomizer.
+        // Public Read-Only properties for safe access by other mods
         public static IReadOnlyList<HatEntry> Hats => _hats.AsReadOnly();
         public static IReadOnlyList<OutfitEntry> Outfits => _outfits.AsReadOnly();
         public static IReadOnlyList<SashEntry> Sashes => _sashes.AsReadOnly();
@@ -25,80 +24,8 @@ namespace PEAKCosmeticsLib
         public static IReadOnlyList<MouthEntry> Mouths => _mouths.AsReadOnly();
         public static IReadOnlyList<AccessoryEntry> Accessories => _accessories.AsReadOnly();
 
-        /// <summary>
-        /// Asynchronously loads an AssetBundle from a file path to prevent game freezes.
-        /// This should be called from a StartCoroutine() method.
-        /// </summary>
-        /// <param name="fullPath">The full file path to the asset bundle.</param>
-        /// <param name="onLoaded">An action or callback that will be invoked with the loaded bundle once complete.</param>
- 
-        
-        public static IEnumerator LoadCosmeticAssetBundle(string fullPath, System.Action<AssetBundle?> onLoaded)
-        {
-            if (!File.Exists(fullPath))
-            {
-                PEAKCosmetics.Logger.LogError($"AssetBundle not found at path: {fullPath}");
-                onLoaded?.Invoke(null);
-                yield break;
-            }
+        #region Base API Methods
 
-            var createRequest = AssetBundle.LoadFromFileAsync(fullPath);
-            yield return createRequest;
-
-            onLoaded?.Invoke(createRequest.assetBundle);
-        }
-        
-        
-        /// <summary>
-        /// A streamlined helper method to load multiple hats from a bundle based on a naming convention.
-        /// This assumes that for a cosmetic named "MyHat", the assets are named "MyHat.prefab" and "MyHat.png".
-        /// </summary>
-        /// <param name="bundle">The loaded AssetBundle containing the cosmetics.</param>
-        /// <param name="hatNames">A list of the base names for the hats you want to load.</param>
-        /// <param name="transforms">An optional dictionary mapping hat names to their custom transforms.</param>
-        public static void AddHatsFromBundle(AssetBundle bundle, List<string> hatNames, Dictionary<string, HatTransform>? transforms = null)
-        {
-            if (bundle == null)
-            {
-                PEAKCosmetics.Logger.LogError("[API] AddHatsFromBundle was called with a null bundle.");
-                return;
-            }
-
-            foreach (string hatName in hatNames)
-            {
-                // Construct asset paths based on the naming convention
-                GameObject? prefab = bundle.LoadAsset<GameObject>($"Assets/{hatName}.prefab");
-                Texture2D? icon = bundle.LoadAsset<Texture2D>($"Assets/{hatName}.png");
-
-                if (prefab == null || icon == null)
-                {
-                    PEAKCosmetics.Logger.LogWarning($"[API] Could not find required assets for '{hatName}' in bundle '{bundle.name}'. Skipping.");
-                    continue;
-                }
-
-                // --- Start of Correction ---
-
-                // 1. Declare the variable and initialize it to null.
-                HatTransform? transform = null;
-                // 2. The TryGetValue method will now assign to the existing variable.
-                transforms?.TryGetValue(hatName, out transform);
-
-                // --- End of Correction ---
-
-                // Use the existing AddHat method to register the cosmetic
-                AddHat(hatName, prefab, icon, bundle.name, ACHIEVEMENTTYPE.NONE, transform);
-            }
-        }
-
-        /// <summary>
-        /// Adds a new Hat cosmetic entry to the library.
-        /// </summary>
-        /// <param name="name">The unique name of the cosmetic.</param>
-        /// <param name="prefab">The hat's 3D model prefab.</param>
-        /// <param name="icon">The 2D icon for the passport UI.</param>
-        /// <param name="bundleName">The name of the asset bundle this cosmetic came from (optional).</param>
-        /// <param name="requiredAchievement">The achievement required to unlock this cosmetic (optional).</param>
-        /// <param name="transform">Custom position, rotation, and scale data for the hat (optional).</param>
         public static void AddHat(string name, GameObject? prefab, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE, HatTransform? transform = null)
         {
             if (string.IsNullOrEmpty(name)) { PEAKCosmetics.Logger.LogError("Attempted to add a hat with a null or empty name."); return; }
@@ -113,60 +40,141 @@ namespace PEAKCosmeticsLib
             PEAKCosmetics.Logger.LogInfo($"[API] Added Outfit: '{name}'");
         }
 
-        public static void AddMouth(string name, Texture2D? icon, string? bundleName = null, GameObject? prefab = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
+        public static void AddEye(string name, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
         {
-            if (string.IsNullOrEmpty(name)) return;
-            _mouths.Add(new MouthEntry(name, prefab, icon, bundleName, requiredAchievement));
-            PEAKCosmetics.Logger.LogInfo($"[API] Added Mouth: '{name}'");
-        }
-
-        public static void AddEye(string name, Texture2D? icon, string? bundleName = null, GameObject? prefab = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
-        {
-            if (string.IsNullOrEmpty(name)) return;
-            _eyes.Add(new EyeEntry(name, prefab, icon, bundleName, requiredAchievement));
+            if (string.IsNullOrEmpty(name)) { PEAKCosmetics.Logger.LogError("Attempted to add an eye with a null or empty name."); return; }
+            _eyes.Add(new EyeEntry(name, icon, bundleName, requiredAchievement));
             PEAKCosmetics.Logger.LogInfo($"[API] Added Eye: '{name}'");
         }
 
-        public static void AddAccessory(string name, Texture2D? icon, string? bundleName = null, GameObject? prefab = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
+        public static void AddMouth(string name, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
         {
-            if (string.IsNullOrEmpty(name)) return;
-            _accessories.Add(new AccessoryEntry(name, prefab, icon, bundleName, requiredAchievement));
+            if (string.IsNullOrEmpty(name)) { PEAKCosmetics.Logger.LogError("Attempted to add a mouth with a null or empty name."); return; }
+            _mouths.Add(new MouthEntry(name, icon, bundleName, requiredAchievement));
+            PEAKCosmetics.Logger.LogInfo($"[API] Added Mouth: '{name}'");
+        }
+
+        public static void AddAccessory(string name, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
+        {
+            if (string.IsNullOrEmpty(name)) { PEAKCosmetics.Logger.LogError("Attempted to add an accessory with a null or empty name."); return; }
+            _accessories.Add(new AccessoryEntry(name, icon, bundleName, requiredAchievement));
             PEAKCosmetics.Logger.LogInfo($"[API] Added Accessory: '{name}'");
         }
 
-        public static void AddSash(string name, GameObject? prefab, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE)
+        public static void AddSash(string name, GameObject? prefab, Texture2D? icon, string? bundleName = null, ACHIEVEMENTTYPE requiredAchievement = ACHIEVEMENTTYPE.NONE) { if (string.IsNullOrEmpty(name)) return; _sashes.Add(new SashEntry(name, prefab, icon, bundleName, requiredAchievement)); }
+
+        #endregion
+
+        #region Async Helper Methods
+
+        public static IEnumerator LoadCosmeticAssetBundleAsync(string fullPath, Action<AssetBundle?> onLoaded)
         {
-            if (string.IsNullOrEmpty(name)) return;
-            _sashes.Add(new SashEntry(name, prefab, icon, bundleName, requiredAchievement));
-            PEAKCosmetics.Logger.LogInfo($"[API] Added Sash: '{name}'");
+            if (!File.Exists(fullPath))
+            {
+                PEAKCosmetics.Logger.LogError($"[API] AssetBundle not found at path: {fullPath}");
+                onLoaded?.Invoke(null);
+                yield break;
+            }
+
+            var createRequest = AssetBundle.LoadFromFileAsync(fullPath);
+            yield return createRequest;
+
+            onLoaded?.Invoke(createRequest.assetBundle);
         }
 
-        /// <summary>
-        /// A data structure for holding custom transform information for a hat.
-        /// </summary>
-        public class HatTransform
+        private static IEnumerator AddCosmeticsFromBundleAsync<T>(AssetBundle bundle, List<string> names, Action<string, T?, Texture2D?> addAction) where T : class
         {
-            public Vector3 Position { get; }
-            public Vector3 Scale { get; }
-            public Vector3 Rotation { get; }
-            public HatTransform(Vector3 position, Vector3 scale, Vector3 rotation) { Position = position; Scale = scale; Rotation = rotation; }
+            foreach (string name in names)
+            {
+                AssetBundleRequest? prefabRequest = null;
+                AssetBundleRequest? iconRequest = null;
+
+                try
+                {
+                    if (typeof(T) != typeof(Texture2D))
+                    {
+                        prefabRequest = bundle.LoadAssetAsync<T>($"Assets/{name}.prefab");
+                    }
+                    iconRequest = bundle.LoadAssetAsync<Texture2D>($"Assets/{name}.png");
+                }
+                catch (Exception e)
+                {
+                    PEAKCosmetics.Logger.LogError($"[API] An error occurred while queuing asset loading for '{name}'. Skipping. Error: {e}");
+                    continue;
+                }
+
+                if (prefabRequest != null) yield return prefabRequest;
+                if (iconRequest != null) yield return iconRequest;
+
+                T? loadedPrefab = prefabRequest?.asset as T;
+                Texture2D? loadedIcon = iconRequest?.asset as Texture2D;
+
+                if (typeof(T) == typeof(Texture2D))
+                {
+                    loadedPrefab = loadedIcon as T;
+                }
+
+                if (loadedPrefab != null && loadedIcon != null)
+                {
+                    addAction(name, loadedPrefab, loadedIcon);
+                }
+                else
+                {
+                    PEAKCosmetics.Logger.LogWarning($"[API] Could not find required assets for '{name}' in bundle '{bundle.name}'. Skipping.");
+                }
+            }
         }
 
-        public class HatEntry
+        public static IEnumerator AddHatsFromBundleAsync(AssetBundle bundle, List<string> hatNames, Dictionary<string, HatTransform>? transforms = null)
         {
-            public string Name;
-            public GameObject? Prefab;
-            public Texture2D? Icon;
-            public string? BundleName;
-            public ACHIEVEMENTTYPE RequiredAchievement;
-            public HatTransform? Transform;
-            public HatEntry(string name, GameObject? prefab, Texture2D? icon, string? bundleName, ACHIEVEMENTTYPE requiredAchievement, HatTransform? transform) { Name = name; Prefab = prefab; Icon = icon; BundleName = bundleName; RequiredAchievement = requiredAchievement; Transform = transform; }
+            yield return AddCosmeticsFromBundleAsync<GameObject>(bundle, hatNames, (name, prefab, icon) =>
+            {
+                HatTransform? transform = null;
+                transforms?.TryGetValue(name, out transform);
+                AddHat(name, prefab, icon, bundle.name, ACHIEVEMENTTYPE.NONE, transform);
+            });
         }
 
-        public class OutfitEntry { public string Name; public GameObject? Prefab; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; public OutfitEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Prefab = p; Icon = i; BundleName = b; RequiredAchievement = a; } }
-        public class SashEntry { public string Name; public GameObject? Prefab; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; public SashEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Prefab = p; Icon = i; BundleName = b; RequiredAchievement = a; } }
-        public class EyeEntry { public string Name; public GameObject? Prefab; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; public EyeEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Prefab = p; Icon = i; BundleName = b; RequiredAchievement = a; } }
-        public class MouthEntry { public string Name; public GameObject? Prefab; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; public MouthEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Prefab = p; Icon = i; BundleName = b; RequiredAchievement = a; } }
-        public class AccessoryEntry { public string Name; public GameObject? Prefab; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; public AccessoryEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Prefab = p; Icon = i; BundleName = b; RequiredAchievement = a; } }
+        public static IEnumerator AddOutfitsFromBundleAsync(AssetBundle bundle, List<string> outfitNames)
+        {
+            yield return AddCosmeticsFromBundleAsync<GameObject>(bundle, outfitNames, (name, prefab, icon) =>
+                AddOutfit(name, prefab, icon, bundle.name));
+        }
+
+        public static IEnumerator AddEyesFromBundleAsync(AssetBundle bundle, List<string> eyeNames)
+        {
+            yield return AddCosmeticsFromBundleAsync<Texture2D>(bundle, eyeNames, (name, _, icon) =>
+                AddEye(name, icon, bundle.name));
+        }
+
+        public static IEnumerator AddMouthsFromBundleAsync(AssetBundle bundle, List<string> mouthNames)
+        {
+            yield return AddCosmeticsFromBundleAsync<Texture2D>(bundle, mouthNames, (name, _, icon) =>
+                AddMouth(name, icon, bundle.name));
+        }
+
+        public static IEnumerator AddAccessoriesFromBundleAsync(AssetBundle bundle, List<string> accessoryNames)
+        {
+            yield return AddCosmeticsFromBundleAsync<Texture2D>(bundle, accessoryNames, (name, _, icon) =>
+                AddAccessory(name, icon, bundle.name));
+        }
+
+        #endregion
+
+        #region Data Structures
+
+        public class HatTransform { public Vector3 Position { get; } public Vector3 Scale { get; } public Vector3 Rotation { get; } public HatTransform(Vector3 p, Vector3 s, Vector3 r) { Position = p; Scale = s; Rotation = r; } }
+
+        public abstract class CosmeticEntry { public string Name; public Texture2D? Icon; public string? BundleName; public ACHIEVEMENTTYPE RequiredAchievement; protected CosmeticEntry(string n, Texture2D? i, string? b, ACHIEVEMENTTYPE a) { Name = n; Icon = i; BundleName = b; RequiredAchievement = a; } }
+
+        public class HatEntry : CosmeticEntry { public GameObject? Prefab; public HatTransform? Transform; public HatEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a, HatTransform? t) : base(n, i, b, a) { Prefab = p; Transform = t; } }
+        public class OutfitEntry : CosmeticEntry { public GameObject? Prefab; public OutfitEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) : base(n, i, b, a) { Prefab = p; } }
+        public class SashEntry : CosmeticEntry { public GameObject? Prefab; public SashEntry(string n, GameObject? p, Texture2D? i, string? b, ACHIEVEMENTTYPE a) : base(n, i, b, a) { Prefab = p; } }
+
+        public class EyeEntry : CosmeticEntry { public EyeEntry(string n, Texture2D? i, string? b, ACHIEVEMENTTYPE a) : base(n, i, b, a) { } }
+        public class MouthEntry : CosmeticEntry { public MouthEntry(string n, Texture2D? i, string? b, ACHIEVEMENTTYPE a) : base(n, i, b, a) { } }
+        public class AccessoryEntry : CosmeticEntry { public AccessoryEntry(string n, Texture2D? i, string? b, ACHIEVEMENTTYPE a) : base(n, i, b, a) { } }
+
+        #endregion
     }
 }
